@@ -3,7 +3,7 @@ import asyncio
 import aiosqlite
 import threading
 from flask import Flask
-from telegram import Update
+from telegram.ext import Application  # ✅ новый код
 from telegram.ext import Application, CommandHandler, ContextTypes
 
 app_flask = Flask(__name__)
