@@ -25,7 +25,7 @@ def run_keepalive():
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 # Этапы диалогов
-CHOOSE_ROLE, LOGIN, PASSWORD, MAIN_MENU, DATE, ADDRESS, SHOP, QUANTITY, AMOUNT, DELIVERY_DATE, CHANGE_PASS_LOGIN, CHANGE_PASS_NEW = range(11)
+CHOOSE_ROLE, LOGIN, PASSWORD, MAIN_MENU, DATE, ADDRESS, SHOP, QUANTITY, AMOUNT, DELIVERY_DATE, CHANGE_PASS_LOGIN, CHANGE_PASS_NEW = range(12)
 
 user_sessions = {}  # Временное хранилище авторизованных пользователей по chat_id
 
