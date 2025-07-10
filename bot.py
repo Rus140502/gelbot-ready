@@ -17,7 +17,7 @@ def run_keepalive():
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 async def start(update, context):
-    await update.message.reply_text("Привет! Я бот по приему заказов.")
+    await update.message.reply_text("Привеt! Я бот по приему заказов.")
 
 async def main():
     application = Application.builder().token(BOT_TOKEN).build()
