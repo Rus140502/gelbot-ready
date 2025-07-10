@@ -26,7 +26,7 @@ CHOOSE_ROLE, SELECT_USER, PASSWORD, MAIN_MENU = range(4)
 user_sessions = {}
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [[“Менеджер”, “Администратор”]]
+    keyboard = [["Менеджер", "Администратор"]]
     markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
     await update.message.reply_text("Кто вы?", reply_markup=markup)
     return CHOOSE_ROLE
