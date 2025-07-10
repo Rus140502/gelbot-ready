@@ -16,7 +16,7 @@ def run_keepalive():
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def start(update, context):
     await update.message.reply_text("Привет! Я бот по приему заказов.")
 
 async def main():
