@@ -234,8 +234,7 @@ async def manager_stats(update):
             GROUP BY u.id
         """) as cursor:
             rows = await cursor.fetchall()
-    text = "
-".join([f"{r[0]} — {r[1]} заказов" for r in rows])
+   text = "\n".join([f"{r[0]} — {r[1]} заказов" for r in rows])
     await update.message.reply_text(f"📈 Статистика:
 {text}")
     return MAIN_MENU
