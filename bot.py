@@ -1,12 +1,9 @@
 import os
 import threading
 import aiosqlite
-import csv
-from io import StringIO
-from datetime import datetime
 from flask import Flask
 from telegram import (
-    Update, ReplyKeyboardMarkup, ReplyKeyboardRemove, InputFile
+    Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 )
 from telegram.ext import (
     Application, CommandHandler, MessageHandler, filters,
@@ -24,12 +21,12 @@ def run_keepalive():
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
-CHOOSE_ROLE, SELECT_USER, PASSWORD, MAIN_MENU, DATE, ADDRESS, SHOP, QUANTITY, AMOUNT, DELIVERY_DATE, CHANGE_PASS_LOGIN, CHANGE_PASS_NEW = range(12)
+CHOOSE_ROLE, SELECT_USER, PASSWORD, MAIN_MENU = range(4)
 
 user_sessions = {}
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [["Менеджер", "Администратор"]]
+    keyboard = [[“Менеджер”, “Администратор”]]
     markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
     await update.message.reply_text("Кто вы?", reply_markup=markup)
     return CHOOSE_ROLE
@@ -63,19 +60,41 @@ async def get_password(update: Update, context: ContextTypes.DEFAULT_TYPE):
     role = "manager" if role == "менеджер" else "admin"
 
     async with aiosqlite.connect("orders.db") as db:
-        async with db.execute("""
-            SELECT id FROM users 
-            WHERE username = ? AND password = ? AND role = ?
-        """, (username, password, role)) as cursor:
+        async with db.execute(
+            "SELECT id FROM users WHERE username = ? AND password = ? AND role = ?",
+            (username, password, role)
+        ) as cursor:
             user = await cursor.fetchone()
             if user:
                 user_id = user[0]
                 user_sessions[update.effective_chat.id] = (user_id, role)
-                await update.message.reply_text(f"✅ Успешный вход как {role}", reply_markup=main_menu(role))
+                await update.message.reply_text(f"✅ Успешный вход как {role.title()}", reply_markup=ReplyKeyboardMarkup([["Мои заказы", "Сделать заказ"]] if role == "manager" else [["Статистика", "Все заказы"], ["Смена пароля", "Изменить цену"]], resize_keyboard=True))
                 return MAIN_MENU
             else:
                 await update.message.reply_text("❌ Неверные данные. Попробуйте снова: /start")
                 return ConversationHandler.END
+
+async def main():
+    application = Application.builder().token(BOT_TOKEN).build()
+
+    conv_handler = ConversationHandler(
+        entry_points=[CommandHandler("start", start)],
+        states={
+            CHOOSE_ROLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, choose_role)],
+            SELECT_USER: [MessageHandler(filters.TEXT & ~filters.COMMAND, select_user)],
+            PASSWORD: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_password)],
+        },
+        fallbacks=[CommandHandler("start", start)],
+    )
+
+    application.add_handler(conv_handler)
+
+    threading.Thread(target=run_keepalive).start()
+    await application.run_polling()
+
+if __name__ == "__main__":
+    import asyncio
+    asyncio.run(main())
 
 # Главное меню
 def main_menu(role):
