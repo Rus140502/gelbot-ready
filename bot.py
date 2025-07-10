@@ -24,36 +24,44 @@ def run_keepalive():
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
-# Этапы диалогов
-CHOOSE_ROLE, LOGIN, PASSWORD, MAIN_MENU, DATE, ADDRESS, SHOP, QUANTITY, AMOUNT, DELIVERY_DATE, CHANGE_PASS_LOGIN, CHANGE_PASS_NEW = range(12)
+CHOOSE_ROLE, SELECT_USER, PASSWORD, MAIN_MENU, DATE, ADDRESS, SHOP, QUANTITY, AMOUNT, DELIVERY_DATE, CHANGE_PASS_LOGIN, CHANGE_PASS_NEW = range(12)
 
-user_sessions = {}  # Временное хранилище авторизованных пользователей по chat_id
+user_sessions = {}
 
-# Команда /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [["Менеджер", "Администратор"]]
     markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
     await update.message.reply_text("Кто вы?", reply_markup=markup)
     return CHOOSE_ROLE
 
-# Роль выбрана
 async def choose_role(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    role = update.message.text
-    context.user_data['role'] = role.lower()
-    await update.message.reply_text("Введите логин:")
-    return LOGIN
+    role = update.message.text.lower()
+    context.user_data['role'] = role
 
-# Ввод логина
-async def get_login(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if role == "менеджер":
+        keyboard = [["manager1"], ["manager2"], ["manager3"]]
+    else:
+        keyboard = [["admin"]]
+
+    markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
+    await update.message.reply_text("Выберите пользователя:", reply_markup=markup)
+    return SELECT_USER
+
+async def select_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['username'] = update.message.text.strip()
-    await update.message.reply_text("Введите пароль:")
+    await update.message.reply_text("Введите цифровой пароль:")
     return PASSWORD
 
-# Ввод пароля и проверка
 async def get_password(update: Update, context: ContextTypes.DEFAULT_TYPE):
     password = update.message.text.strip()
+    if not password.isdigit():
+        await update.message.reply_text("Пароль должен содержать только цифры. Попробуйте снова.")
+        return PASSWORD
+
     username = context.user_data['username']
     role = context.user_data['role']
+    role = "manager" if role == "менеджер" else "admin"
+
     async with aiosqlite.connect("orders.db") as db:
         async with db.execute("""
             SELECT id FROM users 
