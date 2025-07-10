@@ -200,12 +200,8 @@ async def show_my_orders(update, user_id):
     if not rows:
         await update.message.reply_text("Нет заказов.")
         return MAIN_MENU
-    text = "
-
-".join([f"📅 {r[0]} | 🏪 {r[1]} | 📦 {r[2]} | 💰 {r[3]}" for r in rows])
-    await update.message.reply_text(f"Ваши заказы:
-
-{text}")
+    text = "".join([f"📅 {r[0]} | 🏪 {r[1]} | 📦 {r[2]} | 💰 {r[3]}" for r in rows])
+    await update.message.reply_text(f"Ваши заказы:{text}")
     return MAIN_MENU
 
 # --- Админ: Экспорт ---
