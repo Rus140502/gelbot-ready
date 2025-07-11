@@ -1,4 +1,3 @@
-
 import os
 import csv
 import threading
@@ -200,8 +199,8 @@ async def show_my_orders(update, user_id):
     if not rows:
         await update.message.reply_text("Нет заказов.")
         return MAIN_MENU
-    text = "".join([f"📅 {r[0]} | 🏪 {r[1]} | 📦 {r[2]} | 💰 {r[3]}" for r in rows])
-    await update.message.reply_text(f"Ваши заказы:{text}")
+    text = "\n".join([f"📅 {r[0]} | 🏪 {r[1]} | 📦 {r[2]} | 💰 {r[3]}" for r in rows])
+    await update.message.reply_text(f"Ваши заказы:\n{text}")
     return MAIN_MENU
 
 # --- Админ: Экспорт ---
@@ -230,9 +229,8 @@ async def manager_stats(update):
             GROUP BY u.id
         """) as cursor:
             rows = await cursor.fetchall()
-   text = "\n".join([f"{r[0]} — {r[1]} заказов" for r in rows])
-    await update.message.reply_text(f"📈 Статистика:
-{text}")
+            text = "\n".join([f"{r[0]} — {r[1]} заказов" for r in rows])
+    await update.message.reply_text(f"\U0001F4C8 Статистика:\n{text}")
     return MAIN_MENU
 
 # --- Смена пароля ---
