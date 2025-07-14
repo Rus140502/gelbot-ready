@@ -31,17 +31,15 @@ def run_keepalive():
 
 user_sessions = {}
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-if not BOT_TOKEN:
-    raise ValueError("BOT_TOKEN не задан. Установи переменную окружения или пропиши токен в коде.")
 
 # --- Главное меню ---
 def main_menu(role):
     if role == "manager":
-        keyboard = [["\ud83d\udccb Мои заказы", "\ud83d\udd95 Сделать заказ"], ["\ud83d\udeaa Выйти"]]
+        keyboard = [["📋 Мои заказы", "🛒 Сделать заказ"], ["🚪 Выйти"]]
     else:
-        keyboard = [["\ud83d\udcc8 Статистика", "\ud83d\udcc4 Заказы"],
-                    ["\ud83d\udd11 Сменить пароль", "\ud83d\udcb0 Изменить цену"],
-                    ["\ud83d\udeaa Выйти"]]
+        keyboard = [["📈 Статистика", "📄 Заказы"],
+                    ["🔑 Сменить пароль", "💰 Изменить цену"],
+                    ["🚪 Выйти"]]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 # --- /start ---
@@ -78,9 +76,9 @@ async def get_password(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if user:
                 user_sessions[update.effective_chat.id] = (user[0], role)
                 context.user_data['date'] = datetime.today().strftime("%Y-%m-%d")
-                await update.message.reply_text("\u2705 Успешный вход!", reply_markup=main_menu(role))
+                await update.message.reply_text("✅ Успешный вход!", reply_markup=main_menu(role))
                 return MAIN_MENU
-    await update.message.reply_text("\u274c Неверные данные. Попробуйте снова: /start")
+    await update.message.reply_text("❌ Неверные данные. Попробуйте снова: /start")
     return ConversationHandler.END
 
 # --- Меню ---
@@ -93,27 +91,27 @@ async def handle_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user_id, role = user_sessions[chat_id]
 
-    if text == "\ud83d\udeaa Выйти":
+    if text == "🚪 Выйти":
         del user_sessions[chat_id]
         await update.message.reply_text("Вы вышли из системы. Чтобы войти снова, введите /start", reply_markup=ReplyKeyboardRemove())
         return ConversationHandler.END
 
     if role == "manager":
-        if text == "\ud83d\udd95 Сделать заказ":
+        if text == "🛒 Сделать заказ":
             await update.message.reply_text("Введите адрес:")
             return ADDRESS
-        elif text == "\ud83d\udccb Мои заказы":
+        elif text == "📋 Мои заказы":
             return await show_my_orders(update, user_id)
 
     if role == "admin":
-        if text == "\ud83d\udcc4 Заказы":
+        if text == "📄 Заказы":
             return await export_orders(update)
-        elif text == "\ud83d\udcc8 Статистика":
+        elif text == "📈 Статистика":
             return await manager_stats(update)
-        elif text == "\ud83d\udd11 Сменить пароль":
+        elif text == "🔑 Сменить пароль":
             await update.message.reply_text("Введите логин менеджера:")
             return CHANGE_PASS_LOGIN
-        elif text == "\ud83d\udcb0 Изменить цену":
+        elif text == "💰 Изменить цену":
             await update.message.reply_text("Функция в разработке.")
     return MAIN_MENU
 
@@ -156,7 +154,7 @@ async def get_delivery(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif text == "послезавтра":
         delivery = datetime.today() + timedelta(days=2)
     else:
-        await update.message.reply_text("Выберите дату только из предложенных кнопок.")
+        await update.message.reply_text("Пожалуйста, выберите только из кнопок: Сегодня, Завтра, Послезавтра.")
         return DELIVERY_DATE
 
     context.user_data['delivery'] = delivery.strftime("%Y-%m-%d")
@@ -175,23 +173,23 @@ async def get_delivery(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data['delivery']
         ))
         await db.commit()
-    await update.message.reply_text("\u2705 Заказ сохранён!", reply_markup=main_menu("manager"))
+    await update.message.reply_text("✅ Заказ сохранён!", reply_markup=main_menu("manager"))
     return MAIN_MENU
 
 # --- Мои заказы ---
-async def show_my_orders(update: Update, user_id: int):
+async def show_my_orders(update, user_id):
     async with aiosqlite.connect("orders.db") as db:
         async with db.execute("SELECT date, shop, quantity, amount FROM orders WHERE user_id = ?", (user_id,)) as cursor:
             rows = await cursor.fetchall()
     if not rows:
         await update.message.reply_text("Нет заказов.")
         return MAIN_MENU
-    text = "\n".join([f"\ud83d\udcc5 {r[0]} | \ud83c\udfea {r[1]} | \ud83d\udce6 {r[2]} | \ud83d\udcb0 {r[3]}" for r in rows])
+    text = "\n".join([f"📅 {r[0]} | 🏬 {r[1]} | 📦 {r[2]} | 💰 {r[3]}" for r in rows])
     await update.message.reply_text(f"Ваши заказы:\n\n{text}")
     return MAIN_MENU
 
 # --- Экспорт ---
-async def export_orders(update: Update):
+async def export_orders(update):
     async with aiosqlite.connect("orders.db") as db:
         async with db.execute("SELECT * FROM orders") as cursor:
             rows = await cursor.fetchall()
@@ -207,7 +205,7 @@ async def export_orders(update: Update):
     return MAIN_MENU
 
 # --- Статистика ---
-async def manager_stats(update: Update):
+async def manager_stats(update):
     async with aiosqlite.connect("orders.db") as db:
         async with db.execute("""
             SELECT u.username, COUNT(o.id) FROM users u
@@ -217,16 +215,16 @@ async def manager_stats(update: Update):
         """) as cursor:
             rows = await cursor.fetchall()
     text = "\n".join([f"{r[0]} — {r[1]} заказов" for r in rows])
-    await update.message.reply_text(f"\ud83d\udcc8 Статистика:\n{text}")
+    await update.message.reply_text(f"📈 Статистика:\n{text}")
     return MAIN_MENU
 
 # --- Смена пароля ---
-async def change_pass_login(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def change_pass_login(update, context):
     context.user_data['change_login'] = update.message.text.strip()
     await update.message.reply_text("Введите новый пароль:")
     return CHANGE_PASS_NEW
 
-async def change_pass_set(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def change_pass_set(update, context):
     new_pass = update.message.text.strip()
     login = context.user_data['change_login']
     async with aiosqlite.connect("orders.db") as db:
