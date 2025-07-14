@@ -31,6 +31,8 @@ def run_keepalive():
 
 user_sessions = {}
 BOT_TOKEN = os.getenv("BOT_TOKEN")
+if not BOT_TOKEN:
+    raise ValueError("BOT_TOKEN не задан. Установи переменную окружения или пропиши токен в коде.")
 
 # --- Главное меню ---
 def main_menu(role):
@@ -142,7 +144,7 @@ async def get_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return AMOUNT
     context.user_data['amount'] = amt
     keyboard = [["Сегодня", "Завтра", "Послезавтра"]]
-    await update.message.reply_text("Выберите дату поставки или введите (ДД-ММ-ГГГГ):", reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True))
+    await update.message.reply_text("Выберите дату поставки:", reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True))
     return DELIVERY_DATE
 
 async def get_delivery(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -154,11 +156,8 @@ async def get_delivery(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif text == "послезавтра":
         delivery = datetime.today() + timedelta(days=2)
     else:
-        try:
-            delivery = datetime.strptime(text, "%d-%m-%Y")
-        except ValueError:
-            await update.message.reply_text("Неверный формат. Пример: 10-07-2025")
-            return DELIVERY_DATE
+        await update.message.reply_text("Выберите дату только из предложенных кнопок.")
+        return DELIVERY_DATE
 
     context.user_data['delivery'] = delivery.strftime("%Y-%m-%d")
     user_id, _ = user_sessions[update.effective_chat.id]
@@ -180,7 +179,7 @@ async def get_delivery(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return MAIN_MENU
 
 # --- Мои заказы ---
-async def show_my_orders(update, user_id):
+async def show_my_orders(update: Update, user_id: int):
     async with aiosqlite.connect("orders.db") as db:
         async with db.execute("SELECT date, shop, quantity, amount FROM orders WHERE user_id = ?", (user_id,)) as cursor:
             rows = await cursor.fetchall()
@@ -192,7 +191,7 @@ async def show_my_orders(update, user_id):
     return MAIN_MENU
 
 # --- Экспорт ---
-async def export_orders(update):
+async def export_orders(update: Update):
     async with aiosqlite.connect("orders.db") as db:
         async with db.execute("SELECT * FROM orders") as cursor:
             rows = await cursor.fetchall()
@@ -208,7 +207,7 @@ async def export_orders(update):
     return MAIN_MENU
 
 # --- Статистика ---
-async def manager_stats(update):
+async def manager_stats(update: Update):
     async with aiosqlite.connect("orders.db") as db:
         async with db.execute("""
             SELECT u.username, COUNT(o.id) FROM users u
@@ -222,12 +221,12 @@ async def manager_stats(update):
     return MAIN_MENU
 
 # --- Смена пароля ---
-async def change_pass_login(update, context):
+async def change_pass_login(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['change_login'] = update.message.text.strip()
     await update.message.reply_text("Введите новый пароль:")
     return CHANGE_PASS_NEW
 
-async def change_pass_set(update, context):
+async def change_pass_set(update: Update, context: ContextTypes.DEFAULT_TYPE):
     new_pass = update.message.text.strip()
     login = context.user_data['change_login']
     async with aiosqlite.connect("orders.db") as db:
