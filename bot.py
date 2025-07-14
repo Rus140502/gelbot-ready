@@ -1,8 +1,6 @@
 import os
-import csv
 import threading
 import aiosqlite
-from io import StringIO
 from flask import Flask
 from datetime import datetime, timedelta
 from telegram import (
@@ -13,7 +11,6 @@ from telegram.ext import (
     ConversationHandler, ContextTypes
 )
 
-# --- Flask Keepalive ---
 app = Flask(__name__)
 @app.route('/')
 def home():
@@ -22,15 +19,25 @@ def home():
 def run_keepalive():
     app.run(host="0.0.0.0", port=8080)
 
-# --- Состояния ---
 (
     CHOOSE_ROLE, SELECT_USER, PASSWORD, MAIN_MENU,
-    ADDRESS, SHOP, QUANTITY, AMOUNT, DELIVERY_DATE,
+    ADDRESS, SHOP, PRODUCT_QTY, NEXT_PRODUCT, DELIVERY_DATE,
     CHANGE_PASS_LOGIN, CHANGE_PASS_NEW
 ) = range(11)
 
 user_sessions = {}
 BOT_TOKEN = os.getenv("BOT_TOKEN")
+
+PRODUCTS = [
+    ("Гель Sa 5л (Super)", 1350),
+    ("Гель Sa 5л (Bablegum)", 1350),
+    ("Гель Sa 5л (Лимон)", 1350),
+    ("Гель Sa 5л (Белый)", 1350),
+    ("Гель Sa 5л (Голубой)", 1350),
+    ("Гель Sa 3л (Голубой)", 1200),
+    ("Гель Sa 3л (Белый)", 1200),
+    ("Средство для посуды 1л (Лимон)", 550),
+]
 
 # --- Главное меню ---
 def main_menu(role):
@@ -42,7 +49,7 @@ def main_menu(role):
                     ["🚪 Выйти"]]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
-# --- /start ---
+# --- Авторизация ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [["Менеджер", "Администратор"]]
     await update.message.reply_text("Кто вы?", reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True))
@@ -51,10 +58,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def choose_role(update: Update, context: ContextTypes.DEFAULT_TYPE):
     role = update.message.text.lower()
     context.user_data['role'] = role
-    if role == "менеджер":
-        keyboard = [["manager1"], ["manager2"], ["manager3"]]
-    else:
-        keyboard = [["admin"]]
+    keyboard = [["manager1"], ["manager2"], ["manager3"]] if role == "менеджер" else [["admin"]]
     await update.message.reply_text("Выберите пользователя:", reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True))
     return SELECT_USER
 
@@ -88,21 +92,19 @@ async def handle_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if chat_id not in user_sessions:
         await update.message.reply_text("Сначала авторизуйтесь через /start")
         return ConversationHandler.END
-
     user_id, role = user_sessions[chat_id]
-
     if text == "🚪 Выйти":
         del user_sessions[chat_id]
-        await update.message.reply_text("Вы вышли из системы. Чтобы войти снова, введите /start", reply_markup=ReplyKeyboardRemove())
+        await update.message.reply_text("Вы вышли. Введите /start", reply_markup=ReplyKeyboardRemove())
         return ConversationHandler.END
-
     if role == "manager":
         if text == "🛒 Сделать заказ":
+            context.user_data['order_items'] = []
+            context.user_data['product_index'] = 0
             await update.message.reply_text("Введите адрес:")
             return ADDRESS
         elif text == "📋 Мои заказы":
             return await show_my_orders(update, user_id)
-
     if role == "admin":
         if text == "📄 Заказы":
             return await export_orders(update)
@@ -116,47 +118,57 @@ async def handle_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return MAIN_MENU
 
 # --- Заказ ---
-async def get_address(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def get_address(update, context):
     context.user_data['address'] = update.message.text.strip()
     await update.message.reply_text("Введите название магазина:")
     return SHOP
 
-async def get_shop(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def get_shop(update, context):
     context.user_data['shop'] = update.message.text.strip()
-    await update.message.reply_text("Введите количество коробок:")
-    return QUANTITY
+    return await ask_product(update, context)
 
-async def get_quantity(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def ask_product(update, context):
+    index = context.user_data['product_index']
+    if index >= len(PRODUCTS):
+        return await finalize_order(update, context)
+    name, price = PRODUCTS[index]
+    await update.message.reply_text(f"{name} — {price} тг\nСколько коробок? (введите 0, если не нужно)")
+    return PRODUCT_QTY
+
+async def get_product_qty(update, context):
     qty = update.message.text.strip()
     if not qty.isdigit():
-        await update.message.reply_text("Только цифры!")
-        return QUANTITY
-    context.user_data['quantity'] = qty
-    await update.message.reply_text("Введите сумму:")
-    return AMOUNT
+        await update.message.reply_text("Введите число")
+        return PRODUCT_QTY
+    qty = int(qty)
+    index = context.user_data['product_index']
+    if qty > 0:
+        context.user_data['order_items'].append((PRODUCTS[index][0], PRODUCTS[index][1], qty))
+    context.user_data['product_index'] += 1
+    return await ask_product(update, context)
 
-async def get_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    amt = update.message.text.strip()
-    if not amt.replace(".", "", 1).isdigit():
-        await update.message.reply_text("Введите корректную сумму.")
-        return AMOUNT
-    context.user_data['amount'] = amt
-    keyboard = [["Сегодня", "Завтра", "Послезавтра"]]
-    await update.message.reply_text("Выберите дату поставки:", reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True))
+async def finalize_order(update, context):
+    items = context.user_data['order_items']
+    lines = []
+    total = 0
+    for name, price, qty in items:
+        sum_ = qty * price
+        total += sum_
+        lines.append(f"• {name} — {qty} x {price} = {sum_} тг")
+    context.user_data['amount'] = str(total)
+    context.user_data['quantity'] = str(sum(q for _, _, q in items))
+    await update.message.reply_text("\n".join(["🧼 Заказ:"] + lines + [f"💰 Итого: {total} тг"]))
+    keyboard = [["Сегодня"], ["Завтра"], ["Послезавтра"]]
+    await update.message.reply_text("Выберите дату доставки:", reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True))
     return DELIVERY_DATE
 
-async def get_delivery(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def get_delivery(update, context):
     text = update.message.text.strip().lower()
-    if text == "сегодня":
-        delivery = datetime.today()
-    elif text == "завтра":
-        delivery = datetime.today() + timedelta(days=1)
-    elif text == "послезавтра":
-        delivery = datetime.today() + timedelta(days=2)
-    else:
-        await update.message.reply_text("Пожалуйста, выберите только из кнопок: Сегодня, Завтра, Послезавтра.")
+    delta = {"сегодня": 0, "завтра": 1, "послезавтра": 2}.get(text)
+    if delta is None:
+        await update.message.reply_text("Выберите из предложенных вариантов.")
         return DELIVERY_DATE
-
+    delivery = datetime.today() + timedelta(days=delta)
     context.user_data['delivery'] = delivery.strftime("%Y-%m-%d")
     user_id, _ = user_sessions[update.effective_chat.id]
     async with aiosqlite.connect("orders.db") as db:
@@ -176,7 +188,7 @@ async def get_delivery(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("✅ Заказ сохранён!", reply_markup=main_menu("manager"))
     return MAIN_MENU
 
-# --- Мои заказы ---
+# --- Остальное ---
 async def show_my_orders(update, user_id):
     async with aiosqlite.connect("orders.db") as db:
         async with db.execute("SELECT date, shop, quantity, amount FROM orders WHERE user_id = ?", (user_id,)) as cursor:
@@ -184,41 +196,18 @@ async def show_my_orders(update, user_id):
     if not rows:
         await update.message.reply_text("Нет заказов.")
         return MAIN_MENU
-    text = "\n".join([f"📅 {r[0]} | 🏬 {r[1]} | 📦 {r[2]} | 💰 {r[3]}" for r in rows])
+    text = "\n".join([f"📅 {r[0]} | 🏪 {r[1]} | 📦 {r[2]} | 💰 {r[3]}" for r in rows])
     await update.message.reply_text(f"Ваши заказы:\n\n{text}")
     return MAIN_MENU
 
-# --- Экспорт ---
 async def export_orders(update):
-    async with aiosqlite.connect("orders.db") as db:
-        async with db.execute("SELECT * FROM orders") as cursor:
-            rows = await cursor.fetchall()
-    if not rows:
-        await update.message.reply_text("Нет заказов.")
-        return MAIN_MENU
-    output = StringIO()
-    writer = csv.writer(output)
-    writer.writerow(["ID", "User", "Date", "Address", "Shop", "Qty", "Amount", "Delivery"])
-    writer.writerows(rows)
-    output.seek(0)
-    await update.message.reply_document(InputFile(output, filename="orders.csv"))
+    await update.message.reply_text("Экспорт пока отключён.")
     return MAIN_MENU
 
-# --- Статистика ---
 async def manager_stats(update):
-    async with aiosqlite.connect("orders.db") as db:
-        async with db.execute("""
-            SELECT u.username, COUNT(o.id) FROM users u
-            LEFT JOIN orders o ON o.user_id = u.id
-            WHERE u.role = 'manager'
-            GROUP BY u.id
-        """) as cursor:
-            rows = await cursor.fetchall()
-    text = "\n".join([f"{r[0]} — {r[1]} заказов" for r in rows])
-    await update.message.reply_text(f"📈 Статистика:\n{text}")
+    await update.message.reply_text("Статистика пока отключена.")
     return MAIN_MENU
 
-# --- Смена пароля ---
 async def change_pass_login(update, context):
     context.user_data['change_login'] = update.message.text.strip()
     await update.message.reply_text("Введите новый пароль:")
@@ -233,20 +222,21 @@ async def change_pass_set(update, context):
     await update.message.reply_text("Пароль обновлён!", reply_markup=main_menu("admin"))
     return MAIN_MENU
 
-# --- Инициализация БД ---
 def init_db():
     import sqlite3
     conn = sqlite3.connect("orders.db")
     c = conn.cursor()
     c.execute("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, username TEXT UNIQUE, password TEXT, role TEXT)")
-    c.execute("CREATE TABLE IF NOT EXISTS orders (id INTEGER PRIMARY KEY, user_id INTEGER, date TEXT, address TEXT, shop TEXT, quantity TEXT, amount TEXT, delivery TEXT)")
+    c.execute("""CREATE TABLE IF NOT EXISTS orders (
+        id INTEGER PRIMARY KEY, user_id INTEGER, date TEXT,
+        address TEXT, shop TEXT, quantity TEXT, amount TEXT, delivery TEXT
+    )""")
     users = [("manager1", "1111", "manager"), ("manager2", "2222", "manager"), ("manager3", "3333", "manager"), ("admin", "0000", "admin")]
     for u in users:
         c.execute("INSERT OR IGNORE INTO users (username, password, role) VALUES (?, ?, ?)", u)
     conn.commit()
     conn.close()
 
-# --- Запуск ---
 def main():
     init_db()
     application = Application.builder().token(BOT_TOKEN).build()
@@ -260,8 +250,7 @@ def main():
             MAIN_MENU: [MessageHandler(filters.TEXT, handle_main_menu)],
             ADDRESS: [MessageHandler(filters.TEXT, get_address)],
             SHOP: [MessageHandler(filters.TEXT, get_shop)],
-            QUANTITY: [MessageHandler(filters.TEXT, get_quantity)],
-            AMOUNT: [MessageHandler(filters.TEXT, get_amount)],
+            PRODUCT_QTY: [MessageHandler(filters.TEXT, get_product_qty)],
             DELIVERY_DATE: [MessageHandler(filters.TEXT, get_delivery)],
             CHANGE_PASS_LOGIN: [MessageHandler(filters.TEXT, change_pass_login)],
             CHANGE_PASS_NEW: [MessageHandler(filters.TEXT, change_pass_set)],
