@@ -4,14 +4,13 @@ import aiosqlite
 import xlsxwriter
 from flask import Flask
 from datetime import datetime, timedelta
-from telegram import (
-    Update, ReplyKeyboardMarkup, ReplyKeyboardRemove, InputFile
-)
+from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove, InputFile
 from telegram.ext import (
     Application, CommandHandler, MessageHandler, filters,
     ConversationHandler, ContextTypes
 )
 
+# Flask Keepalive
 app = Flask(__name__)
 @app.route('/')
 def home():
@@ -20,6 +19,7 @@ def home():
 def run_keepalive():
     app.run(host="0.0.0.0", port=8080)
 
+# Стейты для ConversationHandler
 (
     CHOOSE_ROLE, SELECT_USER, PASSWORD, MAIN_MENU,
     ADDRESS, SHOP, PRODUCT_QTY, DELIVERY_DATE,
@@ -49,41 +49,36 @@ def main_menu(role):
                     ["🚪 Выйти"]]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
-async def export_orders_excel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id, role = user_sessions.get(update.effective_chat.id, (None, None))
-    if role != "admin":
-        await update.message.reply_text("⛔ Только администратор может выгружать заказы.")
-        return MAIN_MENU
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [["Менеджер"], ["Администратор"]]
+    await update.message.reply_text("Выберите роль:", reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True))
+    return CHOOSE_ROLE
 
+async def choose_role(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    role = update.message.text.lower()
+    context.user_data['role'] = "manager" if "менеджер" in role else "admin"
+    await update.message.reply_text("Введите логин:")
+    return SELECT_USER
+
+async def select_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data['username'] = update.message.text.strip()
+    await update.message.reply_text("Введите пароль:")
+    return PASSWORD
+
+async def get_password(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    password = update.message.text.strip()
     async with aiosqlite.connect("orders.db") as db:
-        orders = await db.execute_fetchall("SELECT * FROM orders")
-        if not orders:
-            await update.message.reply_text("❗ Нет заказов для экспорта.")
-            return MAIN_MENU
-
-        wb = xlsxwriter.Workbook("orders.xlsx")
-        ws = wb.add_worksheet("Заказы")
-        ws.write_row(0, 0, ["ID заказа", "Менеджер", "Дата", "Адрес", "Магазин", "Товар", "Кол-во", "Цена", "Сумма", "Доставка"])
-
-        row = 1
-        for order in orders:
-            order_id, user_id, date, address, shop, qty, amt, delivery = order
-            async with db.execute("SELECT name, price, quantity FROM order_items WHERE order_id = ?", (order_id,)) as item_cursor:
-                items = await item_cursor.fetchall()
-            for name, price, quantity in items:
-                ws.write_row(row, 0, [order_id, user_id, date, address, shop, name, quantity, price, quantity * price, delivery])
-                row += 1
-
-        wb.close()
-
-    with open("orders.xlsx", "rb") as f:
-        await update.message.reply_document(
-            document=InputFile(f, filename="orders.xlsx"),
-            caption="📄 Все заказы (Excel)"
-        )
+        cursor = await db.execute("SELECT id, role FROM users WHERE username = ? AND password = ?", (context.user_data['username'], password))
+        row = await cursor.fetchone()
+    if not row:
+        await update.message.reply_text("❌ Неверный логин или пароль. Попробуйте снова: /start", reply_markup=ReplyKeyboardRemove())
+        return ConversationHandler.END
+    user_id, role = row
+    chat_id = update.effective_chat.id
+    user_sessions[chat_id] = (user_id, role)
+    context.user_data['date'] = datetime.now().strftime("%Y-%m-%d")
+    await update.message.reply_text(f"✅ Успешный вход как {role}", reply_markup=main_menu(role))
     return MAIN_MENU
-    await update.message.reply_text("❌ Неверные данные. Попробуйте снова: /start")
-    return ConversationHandler.END
 
 async def handle_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
@@ -218,13 +213,16 @@ async def export_orders_excel(update, context):
 
         wb = xlsxwriter.Workbook("orders.xlsx")
         ws = wb.add_worksheet("Заказы")
-        headers = ["ID", "UserID", "Дата", "Адрес", "Магазин", "Кол-во", "Сумма", "Доставка"]
-        for col, h in enumerate(headers):
-            ws.write(0, col, h)
+        ws.write_row(0, 0, ["ID заказа", "Менеджер", "Дата", "Адрес", "Магазин", "Товар", "Кол-во", "Цена", "Сумма", "Доставка"])
 
-        for row, order in enumerate(orders, start=1):
-            for col, cell in enumerate(order):
-                ws.write(row, col, cell)
+        row = 1
+        for order in orders:
+            order_id, user_id, date, address, shop, qty, amt, delivery = order
+            async with db.execute("SELECT name, price, quantity FROM order_items WHERE order_id = ?", (order_id,)) as item_cursor:
+                items = await item_cursor.fetchall()
+            for name, price, quantity in items:
+                ws.write_row(row, 0, [order_id, user_id, date, address, shop, name, quantity, price, quantity * price, delivery])
+                row += 1
 
         wb.close()
 
