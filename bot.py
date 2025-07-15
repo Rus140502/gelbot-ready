@@ -49,38 +49,39 @@ def main_menu(role):
                     ["🚪 Выйти"]]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [["Менеджер", "Администратор"]]
-    await update.message.reply_text("Кто вы?", reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True))
-    return CHOOSE_ROLE
+async def export_orders_excel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id, role = user_sessions.get(update.effective_chat.id, (None, None))
+    if role != "admin":
+        await update.message.reply_text("⛔ Только администратор может выгружать заказы.")
+        return MAIN_MENU
 
-async def choose_role(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    role = update.message.text.lower()
-    context.user_data['role'] = role
-    keyboard = [["manager1"], ["manager2"], ["manager3"]] if role == "менеджер" else [["admin"]]
-    await update.message.reply_text("Выберите пользователя:", reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True))
-    return SELECT_USER
-
-async def select_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['username'] = update.message.text.strip()
-    await update.message.reply_text("Введите цифровой пароль:")
-    return PASSWORD
-
-async def get_password(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    password = update.message.text.strip()
-    if not password.isdigit():
-        await update.message.reply_text("Пароль должен быть числом. Попробуйте снова.")
-        return PASSWORD
-    username = context.user_data['username']
-    role = "manager" if context.user_data['role'] == "менеджер" else "admin"
     async with aiosqlite.connect("orders.db") as db:
-        async with db.execute("SELECT id FROM users WHERE username = ? AND password = ? AND role = ?", (username, password, role)) as cursor:
-            user = await cursor.fetchone()
-            if user:
-                user_sessions[update.effective_chat.id] = (user[0], role)
-                context.user_data['date'] = datetime.today().strftime("%Y-%m-%d")
-                await update.message.reply_text("✅ Успешный вход!", reply_markup=main_menu(role))
-                return MAIN_MENU
+        orders = await db.execute_fetchall("SELECT * FROM orders")
+        if not orders:
+            await update.message.reply_text("❗ Нет заказов для экспорта.")
+            return MAIN_MENU
+
+        wb = xlsxwriter.Workbook("orders.xlsx")
+        ws = wb.add_worksheet("Заказы")
+        ws.write_row(0, 0, ["ID заказа", "Менеджер", "Дата", "Адрес", "Магазин", "Товар", "Кол-во", "Цена", "Сумма", "Доставка"])
+
+        row = 1
+        for order in orders:
+            order_id, user_id, date, address, shop, qty, amt, delivery = order
+            async with db.execute("SELECT name, price, quantity FROM order_items WHERE order_id = ?", (order_id,)) as item_cursor:
+                items = await item_cursor.fetchall()
+            for name, price, quantity in items:
+                ws.write_row(row, 0, [order_id, user_id, date, address, shop, name, quantity, price, quantity * price, delivery])
+                row += 1
+
+        wb.close()
+
+    with open("orders.xlsx", "rb") as f:
+        await update.message.reply_document(
+            document=InputFile(f, filename="orders.xlsx"),
+            caption="📄 Все заказы (Excel)"
+        )
+    return MAIN_MENU
     await update.message.reply_text("❌ Неверные данные. Попробуйте снова: /start")
     return ConversationHandler.END
 
