@@ -12,7 +12,7 @@ from telegram.ext import (
     ConversationHandler, ContextTypes
 )
 
-BOT_TOKEN = "PASTE_YOUR_TOKEN_HERE"
+BOT_TOKEN = "8042271583:AAHNBkjbd4BtbqS_djLsmywgqS5Y6sONnVU"
 
 # --- Пользователи и роли ---
 USERS = {
