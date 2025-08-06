@@ -11,7 +11,7 @@ import asyncio
 logging.basicConfig(level=logging.INFO)
 
 # --- Токен бота ---
-BOT_TOKEN = "PASTE_YOUR_TOKEN_HERE"
+BOT_TOKEN = "8042271583:AAHNBkjbd4BtbqS_djLsmywgqS5Y6sONnVU"
 
 # --- Состояния для ConversationHandler ---
 LOGIN, PASSWORD, MENU, ORDER, QUANTITY, DELIVERY_DATE, PHONE, SHOP_NAME, CONFIRM = range(9)
